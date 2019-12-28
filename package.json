@@ -10,14 +10,20 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@react-native-community/async-storage": "^1.7.1",
     "expo-linear-gradient": "^8.0.0",
+    "node-libs-browser": "^2.2.1",
     "react": "16.9.0",
     "react-native": "0.61.5",
     "react-native-camera-kit": "^8.0.4",
+    "react-native-crypto": "^2.2.0",
     "react-native-gesture-handler": "^1.5.2",
     "react-native-linear-gradient": "^2.5.6",
+    "react-native-randombytes": "^3.5.3",
     "react-navigation": "^4.0.10",
-    "react-navigation-stack": "^1.10.3"
+    "react-navigation-stack": "^1.10.3",
+    "sync-storage": "^0.4.2",
+    "web3": "^1.2.4"
   },
   "devDependencies": {
     "@babel/core": "7.7.7",

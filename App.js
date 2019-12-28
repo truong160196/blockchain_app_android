@@ -17,6 +17,15 @@ import {createStackNavigator} from 'react-navigation-stack';
 //import CameraKitCameraScreen we are going to use.
 import LinearGradient from 'react-native-linear-gradient';
 
+import AsyncStorage from '@react-native-community/async-storage';
+import './globals.js';
+
+const Web3 = require('web3');
+
+const web3 = new Web3(
+  new Web3.providers.HttpProvider('https://mainnet.infura.io/'),
+);
+
 const {width} = Dimensions.get('screen');
 
 const DATA = [
@@ -108,19 +117,75 @@ class HomeScreen extends React.Component {
     this.state = {
       //variable to hold the qr value
       qrvalue: '',
+      address: '',
       opneScanner: false,
     };
   }
+
+  componentDidMount = async() => {
+    this.getData();
+   }
+
+  storeData = async (value) => {
+    try {
+      await AsyncStorage.setItem('private_key', value)
+      return true;
+    } catch (e) {
+      console.error('set data', e.message);
+      return false;
+      // saving error
+    }
+  }
+
+  getData = async () => {
+    try {
+      const value = await AsyncStorage.getItem('private_key')
+      if(value !== null) {
+        console.log('get data', value);
+        this.setState({ address: value });
+        this.setState({ opneScanner: false });
+        return value;
+      }
+    } catch(e) {
+      console.error('get data', e.message);
+      return false;
+    }
+  }
+
+  removeItem = async () => {
+    try {
+      await AsyncStorage.removeItem('private_key')
+      return true;
+    } catch(e) {
+      console.error('get data', e.message);
+      return false;
+    }
+  }
+
   onOpenlink() {
     //Function to open URL, If scanned 
-    Linking.openURL(this.state.qrvalue);
+    Linking.openURL(this.state.address);
     //Linking used to open the URL in any browser that you have installed
   }
+
   onBarcodeScan(qrvalue) {
     //called after te successful scanning of QRCode/Barcode
-    this.setState({ qrvalue: qrvalue });
+    if (!qrvalue) {
+      this.removeItem();
+      this.setState({ address: '' });
+    } else {
+      const dataQR = JSON.parse(qrvalue);
+
+      if (dataQR && dataQR.address) {
+        console.log(dataQR.address);
+        this.storeData(dataQR.address);
+        this.setState({ address: dataQR.address });
+      }
+    }
+
     this.setState({ opneScanner: false });
   }
+
   onOpneScanner() {
     var that =this;
     //To Start Scanning
@@ -135,7 +200,7 @@ class HomeScreen extends React.Component {
           )
           if (granted === PermissionsAndroid.RESULTS.GRANTED) {
             //If CAMERA Permission is granted
-            that.setState({ qrvalue: '' });
+            that.setState({ address: '' });
             that.setState({ opneScanner: true });
           } else {
             alert("CAMERA permission denied");
@@ -148,16 +213,23 @@ class HomeScreen extends React.Component {
       //Calling the camera permission function
       requestCameraPermission();
     }else{
-      that.setState({ qrvalue: '' });
+      that.setState({ address: '' });
       that.setState({ opneScanner: true });
     }    
+  }
+  componentWillMount() {
+    web3.eth.getBlock('latest')
+      .then(latestBlock => {
+        console.log(latestBlock);
+        this.setState({ latestBlock });
+      });
   }
   render() {
     let displayModal;
     const {navigate} = this.props.navigation;
     //If qrvalue is set then return this view
     if (!this.state.opneScanner) {
-      if (this.state.qrvalue.trim() != "") {
+      if (this.state.address) {
         return (
           <View style={{flex : 1}}>
             <LinearGradient
@@ -173,7 +245,9 @@ class HomeScreen extends React.Component {
               <View style={{ borderBottomColor: 'black', borderBottomWidth: 0.5,}}/>
               <View style={{flex : 1.5, alignItems: 'center', padding: 16}}>
                 <TouchableHighlight
-                    onPress={() => this.onBarcodeScan("")}>
+                    // onPress={() => this.onBarcodeScan("")}>
+                    onPress={() => this.onOpneScanner()}
+                >
                 <Image
                   style={{width: width/2, height: width/2}}
                   source={require('./Image/qr.png')}
@@ -205,7 +279,7 @@ class HomeScreen extends React.Component {
                     onPress={() => this.onBarcodeScan("")}
                     style={styles.button}>
                       <Text style={{ color: '#FFFFFF', fontSize: 16 }}>
-                      Go back
+                      Logout
                       </Text>
                   </TouchableHighlight>
               </View>
@@ -216,8 +290,8 @@ class HomeScreen extends React.Component {
       return (
         <View style={styles.container}>
             <Text style={styles.heading}>HOMELESS FUND</Text>
-            <Text style={styles.simpleText}>{this.state.qrvalue ? 'Scanned QR Code: '+this.state.qrvalue : ''}</Text>
-            {this.state.qrvalue.includes("http") ? 
+            <Text style={styles.simpleText}>{this.state.address ? 'Scanned QR Code: '+ this.state.address : ''}</Text>
+            {this.state.address.includes("http") ? 
               <TouchableHighlight
                 onPress={() => this.onOpenlink()}
                 style={styles.button}>
