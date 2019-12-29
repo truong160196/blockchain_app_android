@@ -17,91 +17,19 @@ import {createStackNavigator} from 'react-navigation-stack';
 //import CameraKitCameraScreen we are going to use.
 import LinearGradient from 'react-native-linear-gradient';
 
-import AsyncStorage from '@react-native-community/async-storage';
-import './globals.js';
-
 const Web3 = require('web3');
 
-const web3 = new Web3(
-  new Web3.providers.HttpProvider('https://mainnet.infura.io/'),
-);
+import './globals.js';
+
+import { Transaction } from 'ethereumjs-tx';
+
+import AsyncStorage from '@react-native-community/async-storage';
+
+import abi from './contract.json';
 
 const {width} = Dimensions.get('screen');
 
-const DATA = [
-  {
-    id: 'bd7acbea-c1b1-46c2-aed5-3ad53abb28ba',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: '3ac68afc-c605-48d3-a4f8-fbd91aa97f63',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: '58694a0f-3da1-471f-bd96-145571e29d72',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: 'bd7acbea-c1b1-46c2-aed5-3ad53abb28bb',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: '3ac68afc-c605-48d3-a4f8-fbd91aa97f62',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: '58694a0f-3da1-471f-bd96-145571e29d71',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: 'bd7acbea-c1b1-46c2-aed5-3ad53abb28bk',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: '3ac68afc-c605-48d3-a4f8-fbd91aa97f6c',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: '58694a0f-3da1-471f-bd96-145571e29d7m',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: 'bd7acbea-c1b1-46c2-aed5-3ad53abb28by',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: '3ac68afc-c605-48d3-a4f8-fbd91aa97f6y',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-  {
-    id: '58694a0f-3da1-471f-bd96-145571e29d7y',
-    date: '2019/12/20',
-    title: 'First Item',
-    cost: '30$',
-  },
-];
+let DATA = [];
 
 function Item({ title }) {
   return (
@@ -111,24 +39,201 @@ function Item({ title }) {
   );
 }
 
+const urlBase = 'https://ropsten.infura.io/v3/cde205b23d7d4a998f4ee02f652355b0';
+const contractAddress = '0xb527FdE93d1dcC4F192E3eE42B219C0D81789F67';
+
 class HomeScreen extends React.Component {
   constructor() {
     super();
     this.state = {
       //variable to hold the qr value
       qrvalue: '',
+      username: '',
       address: '',
+      private_key: '',
       opneScanner: false,
+      balance: 0,
+      balanceDonate: 0,
+      payment: false,
+      order: {
+        address: '',
+        total: 0,
+      }
     };
   }
 
   componentDidMount = async() => {
-    this.getData();
+    await this.getData();
+
+    await this.connectBlockchain();
    }
 
-  storeData = async (value) => {
+
+  connectBlockchain =  () => {
+   try {
+      if (!this.web3Provider) {
+        const web3Url = new Web3.providers.HttpProvider(urlBase);
+
+        this.web3Provider = new Web3(web3Url);
+
+        const options = {
+            gasPrice: 3000000,
+        };
+
+        this.contract = new this.web3Provider.eth.Contract(abi, contractAddress, options);
+
+        this.getBalanceDonate();
+    }
+   } catch (error) {
+      console.error(error.message)
+      alert('can not connect blockchain network')
+    }
+  };
+
+  getBalanceDonate = async() => {
     try {
-      await AsyncStorage.setItem('private_key', value)
+        const address = this.state.address;
+        if (!address) {
+          alert('can not get balance user')
+        } else{
+            let balance = await this.contract.methods.balanceOf(address).call();
+
+            const balanceConvert = await this.web3Provider.utils.fromWei(balance, 'wei');
+            this.setState({
+              balance: this.currencyFormat(balanceConvert),
+              balanceDonate: balanceConvert,
+            })
+        }
+    } catch (error) {
+      console.error(error.message)
+      alert('can not get balance user')
+    }
+  }
+
+  reloadBalance = () => {
+    this.getBalanceDonate();
+    alert('Get new data success!!')
+  }
+
+  currencyFormat = (num) => {
+    if (num) {
+      return '$' + parseFloat(num).toFixed(2);
+    }
+    return 0;
+  }
+
+  getGasPrice = async () => {
+    return await this.web3Provider.eth.getGasPrice();
+  };
+
+  sendTransactionDonate = async(toAddress, amount) => {
+      try {
+        const validAddress = this.web3Provider.utils.isAddress(toAddress);
+
+        if (validAddress === true) {
+            const addressFromLocal = this.state.address;
+            const privateKeyLocal = this.state.private_key;
+
+            if (addressFromLocal && privateKeyLocal) {
+                const address = addressFromLocal;
+                const privateKey = privateKeyLocal.replace('0x','');
+
+                const balanceDonate = this.state.balanceDonate;
+
+                if (amount > balanceDonate) {
+                    console.error('have enough balance!!!');
+                    alert('You don not have enough balance to cover this transaction')
+                    return;
+                }
+
+                const gasPrice = await this.getGasPrice();
+
+                const valueSend = await this.web3Provider.utils.toWei(amount.toString(), 'wei');
+
+                this.web3Provider.eth.getTransactionCount(address, (err, txCount) => {
+                    const txData = {
+                        to: contractAddress,
+                        gasPrice: this.web3Provider.utils.toHex(gasPrice),
+                        nonce:    this.web3Provider.utils.toHex(txCount),
+                    };
+
+                    this.contract.methods.transfer(
+                        toAddress,
+                        valueSend,
+                    ).estimateGas({from: address})
+                        .then((gasAmount) => {
+                            const dataInput =  this.contract.methods.transfer(
+                                toAddress,
+                                valueSend,
+                            ).encodeABI();
+
+                            txData.gasLimit = this.web3Provider.utils.toHex(gasAmount);
+                            txData.data = dataInput;
+
+                            const privateKey1 = Buffer.from(privateKey, 'hex');
+            
+                            const tx = new Transaction(txData, { chain: 'ropsten', hardfork: 'petersburg' });
+      
+                            tx.sign(privateKey1)
+                          
+                            const serializedTx = tx.serialize()
+                            const raw = '0x' + serializedTx.toString('hex')
+
+                            this.web3Provider.eth.sendSignedTransaction(raw, (err, txHash) => {
+                                if (err) {
+                                    console.error(err);
+                                    alert('Payment bill error!!!')
+                                }
+
+                                DATA = [];
+
+                                alert('Payment bill successfully, please check detail from hash: ' + txHash)
+
+                            });
+                        })
+                });
+            } else {
+                alert('Can not get account')
+            }
+        } else {
+          alert('Payment bill error!!!')
+        }
+    } catch (e) {
+      console.error(e.message)
+      alert('Payment bill error!!!')
+    }
+  };
+
+  paymentOrder = async () => {
+      const addressOrder = this.state.order.address;
+      const amount = this.state.order.total;
+
+      await this.sendTransactionDonate(addressOrder, amount)
+
+      this.setState({
+        payment: false,
+        order: {
+          address: '',
+          total: 0,
+        }
+      })
+
+  }
+
+  storeData = async (data) => {
+    try {
+      await AsyncStorage.setItem('username', data.username)
+      if (data.address) {
+        await AsyncStorage.setItem('address', data.address)
+      }
+
+      if (data.username) {
+        await AsyncStorage.setItem('username', data.username)
+      }
+
+      if (data.pk) {
+        await AsyncStorage.setItem('private_key', data.pk)
+      }
       return true;
     } catch (e) {
       console.error('set data', e.message);
@@ -139,12 +244,17 @@ class HomeScreen extends React.Component {
 
   getData = async () => {
     try {
-      const value = await AsyncStorage.getItem('private_key')
-      if(value !== null) {
-        console.log('get data', value);
-        this.setState({ address: value });
-        this.setState({ opneScanner: false });
-        return value;
+      const username = await AsyncStorage.getItem('username')
+      const address = await AsyncStorage.getItem('address')
+      const private_key = await AsyncStorage.getItem('private_key')
+
+      if(address && private_key && username) {
+        this.setState({ 
+           username: username,
+           address: address,
+           private_key: private_key,
+           opneScanner: false
+          });
       }
     } catch(e) {
       console.error('get data', e.message);
@@ -155,31 +265,74 @@ class HomeScreen extends React.Component {
   removeItem = async () => {
     try {
       await AsyncStorage.removeItem('private_key')
-      return true;
+      await AsyncStorage.removeItem('address')
+      await AsyncStorage.removeItem('username')
+
+      this.setState({
+        username: '',
+        address: '',
+        private_key: '',
+      })
+      alert('Logout successfully!')
     } catch(e) {
-      console.error('get data', e.message);
+      console.error('remove data', e.message);
       return false;
     }
   }
 
   onOpenlink() {
-    //Function to open URL, If scanned 
-    Linking.openURL(this.state.address);
-    //Linking used to open the URL in any browser that you have installed
+    const urlWeb = 'http://localhost:8888/account';
+    Linking.openURL(urlWeb);
   }
 
-  onBarcodeScan(qrvalue) {
+  onBarcodeScan = async (qrvalue) => {
     //called after te successful scanning of QRCode/Barcode
     if (!qrvalue) {
       this.removeItem();
-      this.setState({ address: '' });
     } else {
       const dataQR = JSON.parse(qrvalue);
 
-      if (dataQR && dataQR.address) {
-        console.log(dataQR.address);
-        this.storeData(dataQR.address);
-        this.setState({ address: dataQR.address });
+      if (dataQR && dataQR.address && !dataQR.payment) {
+        this.storeData(dataQR);
+        this.setState({ 
+          address: dataQR.address,
+          private_key: dataQR.pk,
+          username: dataQR.username
+        });
+      }
+
+      if (dataQR && dataQR.amount && dataQR.payment === true) {
+        if (dataQR.amount <= this.state.balanceDonate) {
+          // await this.sendTransactionDonate(dataQR.address, dataQR.total);
+
+          const idOrder = new Date().getTime();
+
+          this.setState({
+            payment: true,
+            order: {
+              address: dataQR.address,
+              total: dataQR.amount,
+              title: dataQR.title,
+              idOrder: idOrder
+            }
+          });
+
+          const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, 
+            hour: "numeric", 
+            minute: "numeric"});
+
+          const history =   {
+            id: idOrder,
+            date: timeNow,
+            title: dataQR.title,
+            cost: dataQR.amount +'$',
+            status: 'confirm'
+          };
+
+          DATA.unshift(history);
+        } else {
+          alert("Your account balance is not sufficient for payment");
+        }
       }
     }
 
@@ -200,7 +353,6 @@ class HomeScreen extends React.Component {
           )
           if (granted === PermissionsAndroid.RESULTS.GRANTED) {
             //If CAMERA Permission is granted
-            that.setState({ address: '' });
             that.setState({ opneScanner: true });
           } else {
             alert("CAMERA permission denied");
@@ -213,23 +365,16 @@ class HomeScreen extends React.Component {
       //Calling the camera permission function
       requestCameraPermission();
     }else{
-      that.setState({ address: '' });
       that.setState({ opneScanner: true });
     }    
   }
-  componentWillMount() {
-    web3.eth.getBlock('latest')
-      .then(latestBlock => {
-        console.log(latestBlock);
-        this.setState({ latestBlock });
-      });
-  }
+
   render() {
     let displayModal;
     const {navigate} = this.props.navigation;
     //If qrvalue is set then return this view
     if (!this.state.opneScanner) {
-      if (this.state.address) {
+      if (this.state.address && this.state.private_key) {
         return (
           <View style={{flex : 1}}>
             <LinearGradient
@@ -239,42 +384,58 @@ class HomeScreen extends React.Component {
               colors={['#FFFFFF', '#d7d6d2',  '#d7d6d2']}
               style={styles.linearGradient, {flex: 1}}>
               <View style={{flex : 0.8}}>
-                <Text style={{flex: 0.5, textAlign: 'center', paddingTop: 16, fontSize: 16, alignItems: 'center'}}>Name's Customer</Text>
-                <Text style={{flex: 1, textAlign: 'center', fontSize: 24, paddingBottom: 16, fontWeight: 'bold'}}>Total Cost</Text>
+                <Text style={{flex: 0.5, textAlign: 'center', paddingTop: 16, fontSize: 16, alignItems: 'center'}}>
+                  {this.state.username}
+                </Text>
+                <Text style={{flex: 1, textAlign: 'center', fontSize: 24, paddingBottom: 16, fontWeight: 'bold'}}>
+                  {this.state.balance} USD
+                </Text>
               </View>
               <View style={{ borderBottomColor: 'black', borderBottomWidth: 0.5,}}/>
               <View style={{flex : 1.5, alignItems: 'center', padding: 16}}>
-                <TouchableHighlight
-                    // onPress={() => this.onBarcodeScan("")}>
-                    onPress={() => this.onOpneScanner()}
-                >
-                <Image
-                  style={{width: width/2, height: width/2}}
-                  source={require('./Image/qr.png')}
-                />
-                </TouchableHighlight>
+              <TouchableHighlight
+                  onPress={() => this.onOpneScanner()}
+              >
+              <Image
+                style={{width: width/2, height: width/2}}
+                source={require('./Image/qr.png')}
+              />
+              </TouchableHighlight>
               </View>
-              <View style={{flex : 3}}>
-                <View style={styles.container, {flex : 1, paddingTop: 16}}>
-                  <Text style={styles.header, {flex: 1, textAlign: 'left', paddingLeft: 16, fontSize: 24}}>History:</Text>
-                  <SafeAreaView style={styles.container, {flex: 9, paddingTop: 16,paddingRight: 8, paddingLeft: 8}}>
-                    <FlatList
-                      data={DATA}
-                      renderItem={({item}) => (
-                          <View style={{flex: 1, flexDirection: 'row'}}>
-                            <View style={{width: 48, height: 48, flex: 1, alignItems: 'center', margin: 4, borderRadius:10, flexDirection: 'row', backgroundColor: 'white'}}>
-                              <Text style={{flex: 1,fontSize: 18, textAlign: 'center', paddingLeft: 8}}>{item.date}</Text>
-                              <Text style={{flex: 1,fontSize: 18, textAlign: 'center'}}>{item.title}</Text>
-                              <Text style={{flex: 1,fontSize: 18, textAlign: 'center', paddingRigt: 8}}>{item.cost}</Text>
-                            </View>
+              <View style={{flex : 2}}>
+              <View style={styles.container, {flex : 2, paddingTop: 16}}>
+                <Text style={styles.header, {flex: 1, textAlign: 'left', paddingLeft: 16, fontSize: 24}}>Order Process:</Text>
+                <SafeAreaView style={styles.container, {flex: 7, paddingTop: 16,paddingRight: 8, paddingLeft: 8}}>
+                  <FlatList
+                    data={DATA}
+                    renderItem={({item}) => (
+                      <TouchableHighlight
+                        onPress={() => this.paymentOrder()}
+                      >
+                        <View style={{flex: 1, flexDirection: 'row'}}>
+                          <View style={{width: 48, height: 48, flex: 1, alignItems: 'center', margin: 4, borderRadius:10, flexDirection: 'row', backgroundColor: 'white'}}>
+                            <Text style={{flex: 1,fontSize: 18, textAlign: 'center', paddingLeft: 8}}>{item.date}</Text>
+                            <Text style={{flex: 1,fontSize: 18, textAlign: 'center'}}>{item.title}</Text>
+                            <Text style={{flex: 1,fontSize: 18, textAlign: 'center', paddingRigt: 8}}>{item.cost}</Text>
+                            <Text style={{flex: 1,fontSize: 18, textAlign: 'center', paddingRigt: 8}}>{item.status}</Text>
                           </View>
-                      )}
-                      keyExtractor={item => item.id}
-                    />
-                  </SafeAreaView>
-                </View>
+                        </View>
+                      </TouchableHighlight>
+                    )}
+                    keyExtractor={item => item.id}
+                  />
+                </SafeAreaView>
               </View>
-              <View style={{flex : 0.5, alignItems: 'center', paddingBottom: 16}}>
+              </View>
+              <View style={{flex : 1, alignItems: 'center', paddingBottom: 16}}>
+                  <TouchableHighlight
+                      onPress={() => this.reloadBalance()}
+                      style={styles.button}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 16 }}>
+                      Reload
+                      </Text>
+                  </TouchableHighlight>
                   <TouchableHighlight
                     onPress={() => this.onBarcodeScan("")}
                     style={styles.button}>
@@ -290,15 +451,14 @@ class HomeScreen extends React.Component {
       return (
         <View style={styles.container}>
             <Text style={styles.heading}>HOMELESS FUND</Text>
-            <Text style={styles.simpleText}>{this.state.address ? 'Scanned QR Code: '+ this.state.address : ''}</Text>
-            {this.state.address.includes("http") ? 
-              <TouchableHighlight
-                onPress={() => this.onOpenlink()}
-                style={styles.button}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 12 }}>Open Link</Text>
-              </TouchableHighlight>
-              : null
-            }
+            <Text style={styles.simpleText}>
+              {this.state.address ? 'Scanned Accout '+ this.state.username : 
+              ''}</Text>
+             <TouchableHighlight
+              onPress={() => this.onOpenlink()}
+              style={styles.button}>
+                <Text style={{ color: '#FFFFFF', fontSize: 12 }}>Login account from web</Text>
+            </TouchableHighlight>
             <TouchableHighlight
               onPress={() => this.onOpneScanner()}
               style={styles.button}>
@@ -306,6 +466,9 @@ class HomeScreen extends React.Component {
                 Scan Private Key
                 </Text>
             </TouchableHighlight>
+            <Text style={{textAlign: 'center', fontSize: 13}}>
+                Please login account from web and scan QRCode
+            </Text>
         </View>
       );
     }
